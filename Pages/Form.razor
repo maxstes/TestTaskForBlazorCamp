@@ -1,0 +1,140 @@
+﻿@page "/"
+@using TestTaskForBlazorCamp.Services.DTO;
+@using TestTaskForBlazorCamp.Services;
+@inject IBlobStorageService blobStorageService;
+
+
+<PageTitle>Index</PageTitle>
+@if (warninngMessage.Length > 0)
+{
+    <div class="alert alert-warning">
+        <strong>Warning! @warninngMessage</strong>
+
+    </div>
+}
+
+<h4>File Upload</h4>
+<EditForm Model="@model">
+    <DataAnnotationsValidator />
+    <ValidationSummary />
+    <div class="row">
+
+        <label>Enter your email address</label>
+        <InputText id="Email" @bind-Value="@model!.Email" required />
+
+        <div class="col-sm-6">
+            <InputFile multiple="false" accept=".docx" class="form-control" disabled="@fileLoading" OnChange="@OnInputFileChange" single required />
+            @if (fileLoading)
+            {
+                <i class="fa fa-refresh"></i> <span>Loading...</span>
+            }
+            @Message
+        </div>
+
+        <div class="col-sm-2">
+            <button type="submit" disabled="@fileLoading" class="btn btn-primary" @onclick="OnUploadSubmit">
+                Upload File
+            </button>
+        </div>
+
+    </div>
+</EditForm>
+
+@if (displayMessage.Length > 0)
+{
+    <div class="alert alert-warning">
+        <p>@displayMessage</p>
+    </div>
+}
+
+
+@code {
+    private string warninngMessage = "";
+    private string displayMessage = "";
+    private bool fileLoading;
+    private EmailViewModel? model = new();
+    string Message = "No file(s) selected";
+    IBrowserFile? file;
+
+    private void OnInputFileChange(InputFileChangeEventArgs e)
+    {
+        if (!e.File.Name.EndsWith(".docx", StringComparison.OrdinalIgnoreCase))
+        {
+            warninngMessage = "This file not a docx";
+            return;
+        }
+        file = e.File;
+        Message = $"{file.Name} file selected";
+        this.StateHasChanged();
+
+
+    }
+    private async void OnUploadSubmit()
+    {
+        if (file == null)
+            return;
+        if (model!.Email == null)
+            return;
+        if (!isValidEmail(model.Email))
+            return;
+
+        fileLoading = true;
+        try
+        {
+            var blobUrl = await blobStorageService.UploadFile(file.Name, file.ContentType, file.OpenReadStream(20971520));
+
+            FormUploadViewModel fileUploadViewModel = new FormUploadViewModel()
+                {
+                    FileName = file.Name,
+                    FileStorageUrl = blobUrl,
+                    FileContentType = file.ContentType,
+                    Email = model.Email!
+                };
+            var result = await SendEmail(fileUploadViewModel);
+            if (result && blobUrl != null)
+            {
+                displayMessage = file.Name + " Uploaded!!";
+            }
+            else
+            {
+                displayMessage = "File Upload failed, Please try again!!";
+            }
+        }
+        catch (Exception ex)
+        {
+            warninngMessage = $"{ex.Message}";
+        }
+
+
+        fileLoading = false;
+        this.StateHasChanged();
+
+    }
+
+    private async Task<bool> SendEmail(FormUploadViewModel attachment)
+    {
+        try
+        {
+            var result = await blobStorageService.SendEmail(attachment);
+            return result;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+    private bool isValidEmail(string email)
+    {
+        string pattern = "[.\\-_a-z0-9]+@([a-z0-9][\\-a-z0-9]+\\.)+[a-z]{2,6}";
+        Match isMatch = Regex.Match(email, pattern, RegexOptions.IgnoreCase);
+        return isMatch.Success;
+    }
+
+    public class EmailViewModel
+    {
+        [Required]
+        [EmailAddress]
+        [MinLength(5)]
+        public string? Email { get; set; }
+    }
+}
